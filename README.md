@@ -1,16 +1,13 @@
 # countdown_board
 
-A new Flutter project.
+Fullscreen timer application written in flutter.
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+Project Description
 
-A few resources to get you started if this is your first Flutter project:
+This project is a fullscreen timer application that runs individual timers sequentially on a single screen. Only one timer is displayed and active at a time, but multiple timers can be configured in advance.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+Timers can be started remotely in any order through a built-in web interface available over a local network. The web form allows users to select and launch specific timers from another device (such as a phone, tablet, or laptop) without installing additional software.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The system is designed for scenarios where controlled, remote-triggered timer execution is required, such as classrooms, competitions, workouts, or live events.
