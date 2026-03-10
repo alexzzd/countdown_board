@@ -424,7 +424,7 @@ class _CountdownScreenState extends State<CountdownScreen>
                 alignment: Alignment.topCenter,
                 child: Image.asset(
                   'assets/images/neurologo.png',
-                  height: 180,
+                  height: 100,
                   fit: BoxFit.contain,
                 ),
               ),
@@ -528,6 +528,7 @@ const String _adminHtml = r'''
 
       speakers.forEach((speaker, index) => {
         const tr = document.createElement('tr');
+        tr.dataset.index = String(index);
         if (index === selectedIndex) {
           tr.classList.add('selected');
         }
@@ -555,11 +556,13 @@ const String _adminHtml = r'''
         const selectTd = document.createElement('td');
         const selectBtn = document.createElement('button');
         const isSelected = index === selectedIndex;
+        selectBtn.className = 'select-btn';
         selectBtn.textContent = isSelected && isRunning ? 'Запущен' : 'Запустить';
         selectBtn.onclick = () => selectSpeaker(index);
         selectTd.appendChild(selectBtn);
 
         const idleBtn = document.createElement('button');
+        idleBtn.className = 'idle-btn';
         idleBtn.textContent = isSelected ? 'Выбран' : 'Выбор';
         idleBtn.onclick = () => selectSpeakerIdle(index);
         selectTd.appendChild(idleBtn);
@@ -621,11 +624,42 @@ const String _adminHtml = r'''
       await fetch('/api/stop', { method: 'POST' });
     }
 
+    function getFocusedMinutesIndex() {
+      const active = document.activeElement;
+      if (!active || active.tagName !== 'INPUT' || active.type !== 'number') {
+        return null;
+      }
+      const row = active.closest('tr');
+      if (!row || !row.dataset || row.dataset.index === undefined) {
+        return null;
+      }
+      const index = Number(row.dataset.index);
+      return Number.isInteger(index) ? index : null;
+    }
+
+    function restoreMinutesFocus(index) {
+      if (!Number.isInteger(index)) {
+        return;
+      }
+      const row = document.querySelector(`tr[data-index="${index}"]`);
+      if (!row) {
+        return;
+      }
+      const input = row.querySelector('input[type="number"]');
+      if (!input) {
+        return;
+      }
+      input.focus();
+      const length = input.value.length;
+      input.setSelectionRange(length, length);
+    }
+
     async function resetTimer() {
       await fetch('/api/reset', { method: 'POST' });
     }
 
     async function pollStatus() {
+      const focusedIndex = getFocusedMinutesIndex();
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
@@ -634,6 +668,7 @@ const String _adminHtml = r'''
         const name = data.speakerName ? `Докладчик: ${data.speakerName}` : 'Докладчик не выбран';
         document.getElementById('statusText').textContent = `${status} | ${formatTime(data.secondsLeft || 0)} | ${name}`;
         renderTable();
+        restoreMinutesFocus(focusedIndex);
       } catch (_) {
         document.getElementById('statusText').textContent = 'Нет соединения';
       }
