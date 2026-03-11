@@ -624,9 +624,13 @@ const String _adminHtml = r'''
       await fetch('/api/stop', { method: 'POST' });
     }
 
-    function getFocusedMinutesIndex() {
+    function getFocusedInputState() {
       const active = document.activeElement;
-      if (!active || active.tagName !== 'INPUT' || active.type !== 'number') {
+      if (!active || active.tagName !== 'INPUT') {
+        return null;
+      }
+      const type = active.type;
+      if (type !== 'number' && type !== 'text') {
         return null;
       }
       const row = active.closest('tr');
@@ -634,24 +638,36 @@ const String _adminHtml = r'''
         return null;
       }
       const index = Number(row.dataset.index);
-      return Number.isInteger(index) ? index : null;
+      if (!Number.isInteger(index)) {
+        return null;
+      }
+      return {
+        index,
+        type,
+        selectionStart: active.selectionStart,
+        selectionEnd: active.selectionEnd,
+      };
     }
 
-    function restoreMinutesFocus(index) {
-      if (!Number.isInteger(index)) {
+    function restoreInputFocus(state) {
+      if (!state || !Number.isInteger(state.index)) {
         return;
       }
-      const row = document.querySelector(`tr[data-index="${index}"]`);
+      const row = document.querySelector(`tr[data-index="${state.index}"]`);
       if (!row) {
         return;
       }
-      const input = row.querySelector('input[type="number"]');
+      const input = row.querySelector(`input[type="${state.type}"]`);
       if (!input) {
         return;
       }
       input.focus();
-      const length = input.value.length;
-      input.setSelectionRange(length, length);
+      if (state.selectionStart != null && state.selectionEnd != null) {
+        input.setSelectionRange(state.selectionStart, state.selectionEnd);
+      } else {
+        const length = input.value.length;
+        input.setSelectionRange(length, length);
+      }
     }
 
     async function resetTimer() {
@@ -659,7 +675,7 @@ const String _adminHtml = r'''
     }
 
     async function pollStatus() {
-      const focusedIndex = getFocusedMinutesIndex();
+      const focusedState = getFocusedInputState();
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
@@ -668,7 +684,7 @@ const String _adminHtml = r'''
         const name = data.speakerName ? `Докладчик: ${data.speakerName}` : 'Докладчик не выбран';
         document.getElementById('statusText').textContent = `${status} | ${formatTime(data.secondsLeft || 0)} | ${name}`;
         renderTable();
-        restoreMinutesFocus(focusedIndex);
+        restoreInputFocus(focusedState);
       } catch (_) {
         document.getElementById('statusText').textContent = 'Нет соединения';
       }
