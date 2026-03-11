@@ -269,6 +269,21 @@ class _CountdownScreenState extends State<CountdownScreen>
     });
   }
 
+  void _adjustCurrentTime(int deltaSeconds) {
+    if (_isRunning) {
+      final nextEnd = _endTime!.add(Duration(seconds: deltaSeconds));
+      setState(() {
+        _endTime = nextEnd.isBefore(DateTime.now()) ? DateTime.now() : nextEnd;
+      });
+      return;
+    }
+
+    setState(() {
+      final next = _remainingSeconds + deltaSeconds;
+      _remainingSeconds = next < 0 ? 0 : next;
+    });
+  }
+
   Future<void> _startApiServer() async {
     final server = await HttpServer.bind(InternetAddress.anyIPv4, 3000);
     _server = server;
@@ -380,6 +395,15 @@ class _CountdownScreenState extends State<CountdownScreen>
         continue;
       }
 
+      if (path == '/api/adjust') {
+        final delta =
+            int.tryParse(request.uri.queryParameters['delta'] ?? '') ?? 0;
+        _adjustCurrentTime(delta);
+        request.response.write('OK');
+        await request.response.close();
+        continue;
+      }
+
       request.response.statusCode = HttpStatus.notFound;
       request.response.write('Not Found');
       await request.response.close();
@@ -485,6 +509,8 @@ const String _adminHtml = r'''
     <button onclick="startTimer()">Старт</button>
     <button onclick="stopTimer()">Стоп</button>
     <button onclick="resetTimer()">Сброс</button>
+    <button onclick="decreaseMinute()">-1 мин</button>
+    <button onclick="increaseMinute()">+1 мин</button>
   </div>
 
   <h2>Докладчики</h2>
@@ -622,6 +648,14 @@ const String _adminHtml = r'''
 
     async function stopTimer() {
       await fetch('/api/stop', { method: 'POST' });
+    }
+
+    async function decreaseMinute() {
+      await fetch('/api/adjust?delta=-60', { method: 'POST' });
+    }
+
+    async function increaseMinute() {
+      await fetch('/api/adjust?delta=60', { method: 'POST' });
     }
 
     function getFocusedInputState() {
