@@ -651,6 +651,7 @@ const String _adminHtml = r'''
     }
 
     function renderTable() {
+      const focusedState = getFocusedInputState();
       const tbody = document.getElementById('speakersBody');
       tbody.innerHTML = '';
 
@@ -724,6 +725,30 @@ const String _adminHtml = r'''
         tr.appendChild(selectTd);
         tr.appendChild(actionsTd);
         tbody.appendChild(tr);
+      });
+
+      restoreInputFocus(focusedState);
+    }
+
+    function updateTableState() {
+      const rows = document.querySelectorAll('#speakersBody tr');
+      rows.forEach((tr) => {
+        const index = Number(tr.dataset.index);
+        if (!Number.isInteger(index)) {
+          return;
+        }
+        const isSelected = index === selectedIndex;
+        tr.classList.toggle('selected', isSelected);
+
+        const selectBtn = tr.querySelector('.select-btn');
+        if (selectBtn) {
+          selectBtn.textContent = isSelected && isRunning ? 'Запущен' : 'Запустить';
+        }
+
+        const idleBtn = tr.querySelector('.idle-btn');
+        if (idleBtn) {
+          idleBtn.textContent = isSelected ? 'Выбран' : 'Выбор';
+        }
       });
     }
 
@@ -828,7 +853,6 @@ const String _adminHtml = r'''
     }
 
     async function pollStatus() {
-      const focusedState = getFocusedInputState();
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
@@ -842,8 +866,7 @@ const String _adminHtml = r'''
         const statusText = document.getElementById('statusText');
         statusText.innerHTML = `${status} | ${modeLabel} | <span class="${isOvertime ? 'overtime' : ''}">${formatTime(data.secondsLeft || 0)}</span>${overtimeLabel} | ${name}`;
         applyModeUi();
-        renderTable();
-        restoreInputFocus(focusedState);
+        updateTableState();
       } catch (_) {
         document.getElementById('statusText').textContent = 'Нет соединения';
       }
