@@ -37,24 +37,34 @@ class CountdownApp extends StatelessWidget {
 }
 
 class Speaker {
-  Speaker({required this.name, required this.seconds});
+  Speaker({
+    required this.name,
+    required this.seconds,
+    this.mode = 'countdown',
+  });
 
   final String name;
   final int seconds;
+  final String mode;
+
+  bool get isCountUp => mode == 'countup';
 
   Map<String, dynamic> toJson() => {
         'name': name,
         'seconds': seconds,
+        'mode': mode,
       };
 
   factory Speaker.fromJson(Map<String, dynamic> json) {
     final seconds = (json['seconds'] as num?)?.toInt() ??
         ((json['minutes'] as num?)?.toInt() ?? 0) * 60;
+    final mode = (json['mode'] as String?) == 'countup' ? 'countup' : 'countdown';
     return Speaker(
       name: (json['name'] as String?)?.trim().isNotEmpty == true
           ? (json['name'] as String).trim()
           : 'Докладчик',
       seconds: seconds < 0 ? 0 : seconds,
+      mode: mode,
     );
   }
 }
@@ -72,10 +82,12 @@ class _CountdownScreenState extends State<CountdownScreen>
   static const String _prefsSelectedIndexKey = 'selectedIndex';
 
   DateTime? _endTime;
+  DateTime? _startTime;
   Timer? _ticker;
   HttpServer? _server;
 
   int _remainingSeconds = 0;
+  int _elapsedSeconds = 0;
   int _selectedIndex = -1;
   List<Speaker> _speakers = [];
 
@@ -146,7 +158,7 @@ class _CountdownScreenState extends State<CountdownScreen>
 
   void _startTicker() {
     _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (_isRunning) {
+      if (_isRunning && !_isCountUp) {
         final diff = _endTime!.difference(DateTime.now()).inSeconds;
         if (diff <= 0) {
           setState(() {
@@ -160,19 +172,47 @@ class _CountdownScreenState extends State<CountdownScreen>
     });
   }
 
+  bool get _isCountUp {
+    if (_selectedIndex < 0 || _selectedIndex >= _speakers.length) {
+      return false;
+    }
+    return _speakers[_selectedIndex].isCountUp;
+  }
+
+  int get _targetSeconds {
+    if (_selectedIndex < 0 || _selectedIndex >= _speakers.length) {
+      return 0;
+    }
+    return _speakers[_selectedIndex].seconds;
+  }
+
   int get _secondsLeft {
     if (_isRunning) {
+      if (_isCountUp) {
+        final diff = DateTime.now().difference(_startTime!).inSeconds;
+        return (_elapsedSeconds + diff) > 0 ? _elapsedSeconds + diff : 0;
+      }
       final diff = _endTime!.difference(DateTime.now()).inSeconds;
       return diff > 0 ? diff : 0;
+    }
+    if (_isCountUp) {
+      return _elapsedSeconds > 0 ? _elapsedSeconds : 0;
     }
     return _remainingSeconds > 0 ? _remainingSeconds : 0;
   }
 
-  bool get _isRunning => _endTime != null;
+  bool get _isRunning => _endTime != null || _startTime != null;
 
-  bool get _isFinished => !_isRunning && _remainingSeconds == 0;
+  bool get _isFinished =>
+      !_isRunning && !_isCountUp && _remainingSeconds == 0;
 
-  bool get _isLastMinute => _isRunning && _secondsLeft <= 60;
+  bool get _isOvertime =>
+      _isCountUp && _targetSeconds > 0 && _secondsLeft >= _targetSeconds;
+
+  bool get _isLastMinute {
+    if (!_isRunning || _isFinished || _isCountUp) return false;
+    return _secondsLeft <= 60;
+  }
 
   String get _formattedTime {
     final minutes = _secondsLeft ~/ 60;
@@ -185,12 +225,23 @@ class _CountdownScreenState extends State<CountdownScreen>
       if (index < 0 || index >= _speakers.length) {
         _selectedIndex = -1;
         _remainingSeconds = 0;
+        _elapsedSeconds = 0;
         _endTime = null;
+        _startTime = null;
         return;
       }
       _selectedIndex = index;
-      _remainingSeconds = _speakers[index].seconds;
-      _endTime = DateTime.now().add(Duration(seconds: _remainingSeconds));
+      _endTime = null;
+      _startTime = null;
+      if (_speakers[index].isCountUp) {
+        _remainingSeconds = 0;
+        _elapsedSeconds = 0;
+        _startTime = DateTime.now();
+      } else {
+        _elapsedSeconds = 0;
+        _remainingSeconds = _speakers[index].seconds;
+        _endTime = DateTime.now().add(Duration(seconds: _remainingSeconds));
+      }
     });
     _saveToPrefs();
   }
@@ -200,12 +251,21 @@ class _CountdownScreenState extends State<CountdownScreen>
       if (index < 0 || index >= _speakers.length) {
         _selectedIndex = -1;
         _remainingSeconds = 0;
+        _elapsedSeconds = 0;
         _endTime = null;
+        _startTime = null;
         return;
       }
       _selectedIndex = index;
-      _remainingSeconds = _speakers[index].seconds;
       _endTime = null;
+      _startTime = null;
+      if (_speakers[index].isCountUp) {
+        _remainingSeconds = 0;
+        _elapsedSeconds = 0;
+      } else {
+        _elapsedSeconds = 0;
+        _remainingSeconds = _speakers[index].seconds;
+      }
     });
     _saveToPrefs();
   }
@@ -217,9 +277,14 @@ class _CountdownScreenState extends State<CountdownScreen>
         _selectedIndex = -1;
       }
       if (!_isRunning) {
-        _remainingSeconds = _selectedIndex >= 0
-            ? _speakers[_selectedIndex].seconds
-            : 0;
+        if (_isCountUp) {
+          _elapsedSeconds = 0;
+          _remainingSeconds = 0;
+        } else {
+          _remainingSeconds = _selectedIndex >= 0
+              ? _speakers[_selectedIndex].seconds
+              : 0;
+        }
       }
     });
     _saveToPrefs();
@@ -239,6 +304,14 @@ class _CountdownScreenState extends State<CountdownScreen>
       return;
     }
 
+    if (_isCountUp) {
+      setState(() {
+        _startTime = DateTime.now().subtract(Duration(seconds: _elapsedSeconds));
+      });
+      _saveToPrefs();
+      return;
+    }
+
     if (_remainingSeconds <= 0) {
       _remainingSeconds = _speakers[_selectedIndex].seconds;
     }
@@ -251,6 +324,14 @@ class _CountdownScreenState extends State<CountdownScreen>
 
   void _stopTimer() {
     if (!_isRunning) return;
+    if (_isCountUp) {
+      final diff = DateTime.now().difference(_startTime!).inSeconds;
+      setState(() {
+        _elapsedSeconds = (_elapsedSeconds + diff) > 0 ? _elapsedSeconds + diff : 0;
+        _startTime = null;
+      });
+      return;
+    }
     final diff = _endTime!.difference(DateTime.now()).inSeconds;
     setState(() {
       _remainingSeconds = diff > 0 ? diff : 0;
@@ -261,6 +342,12 @@ class _CountdownScreenState extends State<CountdownScreen>
   void _resetTimer() {
     setState(() {
       _endTime = null;
+      _startTime = null;
+      if (_isCountUp) {
+        _elapsedSeconds = 0;
+        _remainingSeconds = 0;
+        return;
+      }
       if (_selectedIndex >= 0 && _selectedIndex < _speakers.length) {
         _remainingSeconds = _speakers[_selectedIndex].seconds;
       } else {
@@ -270,6 +357,8 @@ class _CountdownScreenState extends State<CountdownScreen>
   }
 
   void _adjustCurrentTime(int deltaSeconds) {
+    if (_isCountUp) return;
+
     if (_isRunning) {
       final nextEnd = _endTime!.add(Duration(seconds: deltaSeconds));
       setState(() {
@@ -304,6 +393,9 @@ class _CountdownScreenState extends State<CountdownScreen>
           jsonEncode({
             'secondsLeft': _secondsLeft,
             'running': _isRunning,
+            'mode': _isCountUp ? 'countup' : 'countdown',
+            'targetSeconds': _targetSeconds,
+            'overtime': _isOvertime,
             'selectedIndex': _selectedIndex,
             'speakerName': _selectedIndex >= 0 && _selectedIndex < _speakers.length
                 ? _speakers[_selectedIndex].name
@@ -325,6 +417,7 @@ class _CountdownScreenState extends State<CountdownScreen>
                         'name': speaker.name,
                         'seconds': speaker.seconds,
                         'minutes': (speaker.seconds / 60).round(),
+                        'mode': speaker.mode,
                       })
                   .toList(),
             }),
@@ -421,10 +514,10 @@ class _CountdownScreenState extends State<CountdownScreen>
 
   @override
   Widget build(BuildContext context) {
-    final bool blink = _isFinished;
+    final bool blink = _isFinished || _isOvertime;
     final double opacity = blink ? _blinkController.value : 1.0;
 
-    final bool pulse = _isLastMinute && !_isFinished;
+    final bool pulse = _isLastMinute && !_isFinished && !_isOvertime;
     final double pulseScale = pulse ? (1.0 + 0.08 * _pulseController.value) : 1.0;
     final List<Shadow> glow = pulse
         ? [
@@ -465,7 +558,9 @@ class _CountdownScreenState extends State<CountdownScreen>
                       style: GoogleFonts.googleSansCode(
                         fontSize: 1000,
                         fontWeight: FontWeight.w500,
-                        color: pulse ? Colors.redAccent : Colors.white,
+                        color: pulse || _isOvertime
+                            ? Colors.redAccent
+                            : Colors.white,
                         shadows: glow,
                       ),
                     ),
@@ -496,7 +591,9 @@ const String _adminHtml = r'''
     th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
     tr.selected { background: #e8f3ff; }
     input[type="text"], input[type="number"] { width: 100%; padding: 6px; }
+    select { width: 100%; padding: 6px; }
     .row-actions button { margin-right: 6px; }
+    .overtime { color: #d32f2f; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -509,30 +606,35 @@ const String _adminHtml = r'''
     <button onclick="startTimer()">Старт</button>
     <button onclick="stopTimer()">Стоп</button>
     <button onclick="resetTimer()">Сброс</button>
-    <button onclick="decreaseMinute()">-1 мин</button>
-    <button onclick="increaseMinute()">+1 мин</button>
+    <button id="decreaseMinuteBtn" onclick="decreaseMinute()">-1 мин</button>
+    <button id="increaseMinuteBtn" onclick="increaseMinute()">+1 мин</button>
   </div>
 
-  <h2>Докладчики</h2>
-  <button onclick="addSpeaker()">Добавить</button>
-  <button onclick="saveSpeakers()">Сохранить список</button>
+  <div id="speakersSection">
+    <h2>Докладчики</h2>
+    <button onclick="addSpeaker()">Добавить</button>
+    <button onclick="saveSpeakers()">Сохранить список</button>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Имя</th>
-        <th>Минуты</th>
-        <th>Выбор</th>
-        <th>Действия</th>
-      </tr>
-    </thead>
-    <tbody id="speakersBody"></tbody>
-  </table>
+    <table>
+      <thead>
+        <tr>
+          <th>Имя</th>
+          <th>Минуты</th>
+          <th>Режим</th>
+          <th>Выбор</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody id="speakersBody"></tbody>
+    </table>
+  </div>
 
   <script>
     let speakers = [];
     let selectedIndex = -1;
     let isRunning = false;
+    let currentMode = 'countdown';
+    let isOvertime = false;
 
     function formatTime(sec) {
       const minutes = Math.floor(sec / 60);
@@ -579,6 +681,22 @@ const String _adminHtml = r'''
         });
         minutesTd.appendChild(minutesInput);
 
+        const modeTd = document.createElement('td');
+        const modeSelect = document.createElement('select');
+        [['countdown', 'Обратный'], ['countup', 'Прямой']].forEach(([value, label]) => {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = label;
+          if ((speaker.mode || 'countdown') === value) {
+            option.selected = true;
+          }
+          modeSelect.appendChild(option);
+        });
+        modeSelect.addEventListener('change', (e) => {
+          speakers[index].mode = e.target.value;
+        });
+        modeTd.appendChild(modeSelect);
+
         const selectTd = document.createElement('td');
         const selectBtn = document.createElement('button');
         const isSelected = index === selectedIndex;
@@ -602,6 +720,7 @@ const String _adminHtml = r'''
 
         tr.appendChild(nameTd);
         tr.appendChild(minutesTd);
+        tr.appendChild(modeTd);
         tr.appendChild(selectTd);
         tr.appendChild(actionsTd);
         tbody.appendChild(tr);
@@ -609,7 +728,7 @@ const String _adminHtml = r'''
     }
 
     function addSpeaker() {
-      speakers.push({ name: 'Докладчик', seconds: 300 });
+      speakers.push({ name: 'Докладчик', seconds: 300, mode: 'countdown' });
       renderTable();
     }
 
@@ -714,14 +833,26 @@ const String _adminHtml = r'''
         const res = await fetch('/api/status');
         const data = await res.json();
         isRunning = !!data.running;
+        currentMode = data.mode === 'countup' ? 'countup' : 'countdown';
+        isOvertime = !!data.overtime;
         const status = data.running ? 'Идёт' : 'Остановлен';
         const name = data.speakerName ? `Докладчик: ${data.speakerName}` : 'Докладчик не выбран';
-        document.getElementById('statusText').textContent = `${status} | ${formatTime(data.secondsLeft || 0)} | ${name}`;
+        const modeLabel = currentMode === 'countup' ? 'Прямой отсчёт' : 'Обратный отсчёт';
+        const overtimeLabel = isOvertime ? ' | Перерасход' : '';
+        const statusText = document.getElementById('statusText');
+        statusText.innerHTML = `${status} | ${modeLabel} | <span class="${isOvertime ? 'overtime' : ''}">${formatTime(data.secondsLeft || 0)}</span>${overtimeLabel} | ${name}`;
+        applyModeUi();
         renderTable();
         restoreInputFocus(focusedState);
       } catch (_) {
         document.getElementById('statusText').textContent = 'Нет соединения';
       }
+    }
+
+    function applyModeUi() {
+      const isCountUp = currentMode === 'countup';
+      document.getElementById('decreaseMinuteBtn').disabled = isCountUp;
+      document.getElementById('increaseMinuteBtn').disabled = isCountUp;
     }
 
     loadSpeakers();
